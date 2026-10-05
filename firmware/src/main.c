@@ -15,6 +15,8 @@ extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
  * The USB audio stream cannot wait for the render (one packet per 1 ms frame, a render takes up to
  * ~5 ms): uac_service also runs nested. It touches only EP4 (INDEX is set on every access) and the
  * consumer side of the audio ring, and usb_poll never runs nested, so the two never interleave. */
+static uint32_t ms_last, ms_acc;                /* fm1_ms from TIMER4; ms_last set in timer5_start */
+
 void fm1_timer5_irq(void)
 {
     static uint32_t sub, owed;
@@ -23,11 +25,10 @@ void fm1_timer5_irq(void)
     felucca_dbg.timer_irqs++;
     fm1_input_tick();
     {   /* milliseconds from the 24 MHz TIMER4 (robust to a late tick) */
-        static uint32_t last, acc;
-        acc += t0 - last;
-        last = t0;
-        while (acc >= 1000u * FM1_TICKS_PER_US) {
-            acc -= 1000u * FM1_TICKS_PER_US;
+        ms_acc += t0 - ms_last;
+        ms_last = t0;
+        while (ms_acc >= 1000u * FM1_TICKS_PER_US) {
+            ms_acc -= 1000u * FM1_TICKS_PER_US;
             fm1_ms++;
         }
     }
@@ -60,6 +61,9 @@ extern void isr_timer5(void);
 
 static void timer5_start(void)                 /* OSC /4 = 6 MHz, PRD 600 -> 10 kHz */
 {
+    ms_last = fm1_ticks();             /* TIMER4 may run on from before this boot (fm1_time_init):
+                                        * from 0, fm1_ms would start at up to 179 s and clear the
+                                        * boot-loop guard (fm1_ms > 30000) at once */
     fm1_timer5_start(isr_timer5, 4);   /* above ALNK0 (3): the scan nests into the render (see fm1_timer5_irq) */
 }
 
