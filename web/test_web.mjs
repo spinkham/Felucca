@@ -697,6 +697,9 @@ async function editorLibrarian() {
   }
   const old = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: 0, preset: 4, engineName: "ANALOG", presetName: "ACID", p: d2.p, steps: E.stepsFromPattern(cap.pattern) }, ctx);
   ok(old.patches.length === 1 && eq(old.patches[0].p, d2.p) && js(old.patches[0].pattern) === js(cap.pattern), "library file: reads the old \"Save to file\" format");
+  const odd = E.readLibraryFile({ ...file, patches: file.patches.map((x, i) => ({ ...x, created: 12345 + i, modified: i ? null : {} })) }, ctx);
+  ok(odd.patches.length === 2 && odd.patches.every((x) => typeof x.created === "string" && typeof x.modified === "string"),
+    "library file: non-string created / modified -> dates (the librarian sort needs strings)");
   let threw = false;
   try { E.readLibraryFile({ format: "something" }, ctx); } catch (e) { threw = true; }
   ok(threw, "library file: unknown format -> error");

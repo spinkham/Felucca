@@ -1103,6 +1103,7 @@ const gridFromSteps = (steps) => Array.from({ length: UP.PAT }, (_, i) => (steps
 
 function cleanPatch(pt) {
   const now = new Date().toISOString();
+  const iso = (v) => (typeof v === "string" && v ? v : null);   /* imported files: anything (the sort needs strings) */
   const pat = Array.isArray(pt.pattern) && pt.pattern.length
     ? Array.from({ length: UP.PAT }, (_, i) => { const x = pt.pattern[i]; return Array.isArray(x) ? patNorm(x[0] | 0, x[1] | 0) : [0, 0]; })
     : null;
@@ -1116,7 +1117,7 @@ function cleanPatch(pt) {
     pattern: patternUsed(grid) ? null : patternUsed(pat) ? pat : null,
     grid: patternUsed(grid) ? grid : null,
     tags: Array.isArray(pt.tags) ? [...new Set(pt.tags.map((x) => String(x).trim()).filter(Boolean))] : [],
-    created: pt.created || now, modified: pt.modified || pt.created || now,
+    created: iso(pt.created) || now, modified: iso(pt.modified) || iso(pt.created) || now,
   };
   if (Number.isInteger(pt.slot)) o.slot = pt.slot;
   if (Array.isArray(pt.fm6) && pt.fm6.length === FM6.PACKED) o.fm6 = pt.fm6.map((x) => (x | 0) & 127);   /* (a converted */
@@ -4594,9 +4595,9 @@ function libView() {
     name: (a, b) => a.name.localeCompare(b.name),
     engine: (a, b) => engRank(a.engineName) - engRank(b.engineName) || (a.engineName || "").localeCompare(b.engineName || "") ||
       a.name.localeCompare(b.name),   /* (the device's order: ENGINE_ORDER) */
-    created: (a, b) => b.created.localeCompare(a.created),
-    modified: (a, b) => b.modified.localeCompare(a.modified),
-  }[$("libsort").value] || ((a, b) => b.modified.localeCompare(a.modified));
+    created: (a, b) => String(b.created).localeCompare(String(a.created)),   /* String(): patches stored */
+    modified: (a, b) => String(b.modified).localeCompare(String(a.modified)), /* before cleanPatch checked */
+  }[$("libsort").value] || ((a, b) => String(b.modified).localeCompare(String(a.modified)));
   return lib.filter((p) => (!q || p.name.toLowerCase().includes(q) || p.tags.some((x) => x.toLowerCase().includes(q)))
     && (!fe || p.engineName === fe) && (!ft || p.tags.includes(ft))).sort(by);
 }
