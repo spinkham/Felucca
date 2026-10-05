@@ -335,22 +335,12 @@ static void ota_unstage(void)
         ota_erase(OTA_AREA + i);
 }
 
-/* returns only when nothing was committed (refused, failed, or dry run) */
-static int ota_session(void)
+/* UPDATA_PARM (update_mode_api_v2 layout, 112 bytes): run the loader staged at OTA_AREA.
+ * The update loader builds the same record to re-arm it while it writes (ldr_core.c). */
+static void ota_parm(uint8_t *parm)
 {
-    static uint8_t parm[112];
-    uint8_t back[112];
     uint32_t i;
-    int rc;
-    ota_deadline = ota_now_ms() + 120000u;          /* step 1 normally takes ~5 s; a stalled host gives up after 2 min */
-    rc = ota_stage();
-    if (rc) {
-        ota_unstage();
-        ota_show(9, rc);
-        return rc;
-    }
-    /* 5./7. UPDATA_PARM (update_mode_api_v2 layout), flash copy first */
-    for (i = 0; i < sizeof parm; i++)
+    for (i = 0; i < 112u; i++)
         parm[i] = 0;
     ota_wr16(parm + 2, 0x5A0Du);
     ota_wr16(parm + 4, 0x5A01u);
@@ -359,6 +349,23 @@ static int ota_session(void)
         parm[8 + i] = (uint8_t)"ota-FM-1_015"[i];    /* the loader's own USB identity */
     ota_wr32(parm + 72, OTA_AREA);
     ota_wr16(parm, ota_crc16(parm + 2, 78, 0));
+}
+
+/* returns only when nothing was committed (refused, failed, or dry run) */
+static int ota_session(void)
+{
+    static uint8_t parm[112];
+    uint8_t back[112];
+    int rc;
+    ota_deadline = ota_now_ms() + 120000u;          /* step 1 normally takes ~5 s; a stalled host gives up after 2 min */
+    rc = ota_stage();
+    if (rc) {
+        ota_unstage();
+        ota_show(9, rc);
+        return rc;
+    }
+    /* 5./7. the update record, flash copy first */
+    ota_parm(parm);
 #if FELUCCA_OTA_DRYRUN
     ota_unstage();
     ota_show(9, 1);                                 /* 1 = dry run complete */
