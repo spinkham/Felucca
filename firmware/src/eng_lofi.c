@@ -147,8 +147,9 @@ static void lofi_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     if (p[P_E5])
         inc += (uint32_t)(((int32_t)(inc >> 12) * (((osc_sine(v->ph[1]) >> 8) * p[P_E5]) >> 4)) >> 4);   /* no overflow */
     v->ph[1] += 0x01000000u;
-    if (lpk > 32767)
-        lpk = 32767;
+    if (lpk > 32766)
+        lpk = 32766;
+    lpk &= ~1;                                          /* even: d * lpk >> 15 == d * (lpk / 2) >> 14, which fits */
     for (i = 0; i < n; i++) {
         int32_t s;
         if (--cnt <= 0) {
@@ -193,7 +194,7 @@ static void lofi_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
             held = s;
         }
         ph0 += inc;
-        lp += mulq15(held - lp, lpk);
+        lp += ((held - lp) * (lpk >> 1)) >> 14;          /* |held|, |lp| <= 65536: |d| x 16383 < 2^31 */
         out[i] += voice_amp(lp, m, i);
     }
     v->ph[0] = ph0;
