@@ -11,6 +11,7 @@
  *   fm1_enter_uboot()    "usb_update_mode" at 0x01C7FD80 + chip reset
  *   fm1_enter_update(p)  112-byte UPDATA_PARM record at 0x01C7FD88 + core reset
  *                        (the SPL then runs the staged update loader)
+ *   fm1_updata_parm_set(p)   the record only, no reset (the loader re-arms it while it writes)
  *   fm1_core_reset()     PWR_CON core reset
  *   fm1_updata_parm_clear()  zero the record (CRC 0: ignored on a warm reset)
  *   fm1_mailbox_clear()  zero 0x01C7FD80..0x01C7FDFF (boot info, mailbox) at cold start
@@ -138,15 +139,20 @@ FM1_INLINE void fm1_core_reset(void)
         ;
 }
 
-FM1_INLINE void fm1_enter_update(const uint8_t *parm)
+FM1_INLINE void fm1_updata_parm_set(const uint8_t *parm)
 {
     uint32_t i;
+    for (i = 0; i < FM1_UPDATA_PARM_LEN; i++)
+        FM1_UPDATA_PARM[i] = parm[i];
+}
+
+FM1_INLINE void fm1_enter_update(const uint8_t *parm)
+{
     __asm__ volatile("cli");
     if (!(*(volatile uint32_t *)0x1EEE240u & 1u))       /* drop CPU0 write limits, as fm1_enter_uboot */
         *(volatile uint32_t *)0x1EEE240u = 0xE7u;
     *(volatile uint32_t *)0x1EEE348u = 0;
-    for (i = 0; i < FM1_UPDATA_PARM_LEN; i++)
-        FM1_UPDATA_PARM[i] = parm[i];
+    fm1_updata_parm_set(parm);
     fm1_core_reset();
 }
 
