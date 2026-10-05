@@ -147,6 +147,9 @@ def flash_image(app, key):
     cfg_body = eq_e + eq
     cfg = entry(crc16(cfg_body), 0x20, 0x20 + len(cfg_body), 0x83, 0xFF, 1, "cfg") + cfg_body
     region = bytearray(area + cfg)
+    if 0x4000 + len(region) > FLASH_SIZE:               # the slice below would grow flash.bin silently
+        raise SystemExit(f"app area is {len(region)} B, {0x4000 + len(region) - FLASH_SIZE} B past {FLASH_SIZE:#x}; "
+                         "the update loader writes only up to there (SDK cfg_tool.bin / eq_cfg_hw.bin too big?)")
     sfc(region, 0, len(region), 0, key)
     f[0x4000:0x4000 + len(region)] = region
     return bytes(f)
