@@ -851,6 +851,37 @@ static int chk_keep_mono(char *m, uint32_t n) { return chk_keep(m, n, V_MONO); }
 static int chk_keep_legato(char *m, uint32_t n) { return chk_keep(m, n, V_LEGATO); }
 static int chk_keep_unison(char *m, uint32_t n) { return chk_keep(m, n, V_UNISON); }
 
+/* LOFI: WAVE switched from a narrow pulse (held +57343) to SAW at TONE 127: the low-pass
+ * step must not overflow (it used to wrap and stick far outside the wave's range) */
+static int chk_lofi_jump(char *msg, uint32_t n)
+{
+    track_t *t = &trk[0];
+    uint32_t k;
+    int32_t most = 0;
+    host_tracks_init();
+    host_preset(t, 3, 0);
+    t->p[P_E0] = t->p[P_E1] = t->p[P_E2] = t->p[P_E3] = t->p[P_E5] = 0;
+    t->p[P_E7] = 127;
+    t->p[P_SUS] = 127;
+    t->p[P_ATK] = 0;
+    t->p[P_VOICE] = V_POLY;
+    trk_note_on(t, 60, 100);
+    for (k = 0; k < 200u; k++)
+        blk();
+    t->v[0].s[0] = 57343;                          /* pulse high, the filter settled on it */
+    t->v[0].s[4] = 57343;
+    t->v[0].ph[0] = 0;
+    t->p[P_E1] = 2;                                /* WAVE -> SAW, live */
+    for (k = 0; k < 500u; k++) {
+        int32_t lp = t->v[0].s[4];
+        blk();
+        lp = lp < 0 ? -lp : lp;
+        most = lp > most ? lp : most;
+    }
+    snprintf(msg, n, "LOFI pulse -> SAW at TONE 127: filter state peaks at %d (limit 65536)", most);
+    return most <= 65536;
+}
+
 /* the VOICE engine's cap: 8 keys in POLY and in UNISON (alone: the budget does not limit it) */
 static int chk_voice_cap(char *msg, uint32_t n)
 {
@@ -1092,6 +1123,7 @@ int main(int argc, char **argv)
     add(J_CHECK, "voices: LEGATO keeps its note")->check = chk_keep_legato;
     add(J_CHECK, "voices: UNISON keeps its note")->check = chk_keep_unison;
     add(J_CHECK, "voices: VOICE engine cap")->check = chk_voice_cap;
+    add(J_CHECK, "LOFI: wave switch at full TONE")->check = chk_lofi_jump;
     add(J_CHECK, "routing: no hanging notes")->check = chk_hang;
     run_jobs(J, nj, jobs_at_once);
 
