@@ -82,6 +82,14 @@ static void fres_coef(fres_t *r, uint32_t f16, uint32_t bw16)
     r->a = (1 << 30) - r->b - r->c;
 }
 
+/* a Q30 resonator output as the int32 state, saturated: at a high Q the states
+ * can pass 2^31 and would wrap (a burst of noise) */
+static inline int32_t fres_sat(int64_t a)
+{
+    int32_t lo = (int32_t)a, hi = (int32_t)(a >> 32);   /* fits: hi is lo's sign (cheap on a 32-bit core) */
+    return hi == lo >> 31 ? lo : hi < 0 ? -0x7FFFFFFF - 1 : 0x7FFFFFFF;
+}
+
 static void formant_note_on(track_t *t, voice_t *v)
 {
     (void)t;
@@ -173,18 +181,18 @@ static void formant_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, con
         }
         /* F1 -> F2 -> F3 -> F4, Q30, rounded; the signal x 64 inside: the rounding
          * dead band of F1 (+-0.5 / A, ~340 at 270 Hz) stays below 6 LSB */
-        a = (int32_t)(((int64_t)r1.a * (x << 6) + (int64_t)r1.b * y1 + (int64_t)r1.c * y2 + (1 << 29)) >> 30);
+        a = fres_sat(((int64_t)r1.a * (x << 6) + (int64_t)r1.b * y1 + (int64_t)r1.c * y2 + (1 << 29)) >> 30);
         y2 = y1;
         y1 = a;
-        a = (int32_t)(((int64_t)r2.a * a + (int64_t)r2.b * y3 + (int64_t)r2.c * y4 + (1 << 29)) >> 30);
+        a = fres_sat(((int64_t)r2.a * a + (int64_t)r2.b * y3 + (int64_t)r2.c * y4 + (1 << 29)) >> 30);
         y4 = y3;
         y3 = a;
-        a = (int32_t)(((int64_t)r3.a * a + (int64_t)r3.b * y5 + (int64_t)r3.c * y6 + (1 << 29)) >> 30);
+        a = fres_sat(((int64_t)r3.a * a + (int64_t)r3.b * y5 + (int64_t)r3.c * y6 + (1 << 29)) >> 30);
         y6 = y5;
         y5 = a;
-        a = (int32_t)(((int64_t)r4.a * a + (int64_t)r4.b * y7 + (int64_t)r4.c * y8 + (1 << 29)) >> 30);
+        a = fres_sat(((int64_t)r4.a * a + (int64_t)r4.b * y7 + (int64_t)r4.c * y8 + (1 << 29)) >> 30);
         y8 = y7;
-        y7 = clamp(a, -(1 << 28), 1 << 28);             /* int32 state stays far from overflow */
+        y7 = clamp(a, -(1 << 28), 1 << 28);             /* fres_sat: no wrap; F4 state kept lower still */
         s = soft_knee(clamp((int32_t)(((int64_t)y7 * og + (int64_t)(y7 - y8) * ogk) >> 21), -200000, 200000), 24000);
         ph += inc;
         out[i] += voice_amp(s, m, i) << 1;
