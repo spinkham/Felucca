@@ -72,6 +72,12 @@ static void ldr_record_clear(void)
 {
     fm1_updata_parm_clear();                        /* CRC 0: the SPL ignores it on a warm reset */
 }
+static void ldr_record_arm(void)                    /* a warm reset runs the loader again */
+{
+    uint8_t parm[FM1_UPDATA_PARM_LEN];
+    ota_parm(parm);
+    fm1_updata_parm_set(parm);
+}
 static void ldr_progress(uint32_t done, uint32_t total) { (void)done; (void)total; ldr_poll(); }
 #include "ldr_core.c"
 
@@ -106,8 +112,9 @@ void ldr_main(void)
 void ldr_cstart(void)
 {
     uint32_t *p;
-    ldr_record_clear();                             /* first thing: a crash below cannot loop through a
-                                                     * warm reset; resume after power loss uses the flash record */
+    ldr_boot();                                     /* first thing (ldr_core.c): clear the RAM record, so a crash
+                                                     * below cannot loop through a warm reset, unless an update is
+                                                     * half-written; resume after power loss uses the flash record */
     for (p = _bss_start; p < _bss_end; p++)
         *p = 0;
     ldr_main();
