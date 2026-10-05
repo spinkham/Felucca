@@ -355,6 +355,7 @@ static void mix_part(track_t *t, uint32_t n)
     {
         int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN];
         int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
+        int32_t ll = (lvl * gl) >> 12, lr = (lvl * gr) >> 12;   /* level x pan, once per block */
         int32_t c = t->p[P_CHOR] * 258, d = t->p[P_DLY] * 258, r = t->p[P_REV] * 258, pk = t->peak;
         int32_t xmax = c > d ? c : d;
         xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);   /* sends: loud chords at a high LEVEL */
@@ -373,8 +374,8 @@ static void mix_part(track_t *t, uint32_t n)
                 send_d[i] += mulq15(xs, d);
             if (r)
                 send_r[i] += mulq15(xs, r);
-            mix_l[i] += (x * gl) >> 12;
-            mix_r[i] += (x * gr) >> 12;
+            mix_l[i] += ((b[i] >> 2) * ll) >> 10;          /* |ll|, |lr| <= lvl: fits as x does */
+            mix_r[i] += ((b[i] >> 2) * lr) >> 10;
         }
         t->peak = pk;
     }
