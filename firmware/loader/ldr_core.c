@@ -6,9 +6,11 @@
  * The host serves the package ("logical image") with cmd 0x30 reads (ota.c).
  * The loader:
  *   1. reads the UFW header and finds flash.bin;
- *   2. checks that the package's app area decrypts with THIS chip's key
- *      (taken from isd_config.ini in the device's own flash head), so a
- *      package for another key is refused before anything is erased;
+ *   2. checks that the device's flash head does not put the app area anywhere
+ *      but 0x4000 (its app_dir_head entry), and that the package's app area
+ *      decrypts with THIS chip's key (taken from isd_config.ini in the same
+ *      head), so a package for another key or layout is refused before
+ *      anything is erased;
  *   2b. reads the whole flash.bin once and checks it against the CRC16 of its
  *      UFW entry (the vendor tools' check), keeping each app sector's CRC16:
  *      a damaged or truncated package is refused before anything is erased;
@@ -68,35 +70,43 @@ static void ldr_sfc(uint8_t *p, uint32_t n, uint32_t base_off, uint32_t key)
     }
 }
 
-/* chip key from the device's flash head: JLFS top entries (ENC 0xFFFF) -> isd_config.ini blob */
-static int ldr_chip_key(uint32_t *key)
+/* the device's flash head: JLFS top entry `name` (n bytes with its NUL; ENC 0xFFFF) -> e, decoded */
+static int ldr_head_entry(const char *name, uint32_t n, uint8_t *e)
 {
-    uint8_t e[32], blob[34];
-    uint32_t off, i, sum, k;
+    uint32_t off;
     for (off = 32; off < 0x400u; off += 32u) {
         if (ldr_fread(off, e, 32))
             return -1;
         ota_jl_enc(e, 32);
         if (ota_crc16(e + 2, 30, 0) != ota_rd16(e))
             return -2;
-        if (!ota_memeq(e + 16, (const uint8_t *)"isd_config.ini", 15)) {
-            if (ota_rd16(e + 14))
-                return -3;                               /* last entry, not found */
-            continue;
-        }
-        if (ldr_fread(ota_rd32(e + 4), blob, 34) || ota_crc16(blob, 32, 0) != ota_rd16(blob + 32))
-            return -4;
-        for (i = 0, sum = 0; i < 16u; i++)
-            sum += blob[i];
-        sum &= 0xFFu;
-        sum = sum >= 0xE0u ? 0xAAu : sum <= 0x10u ? 0x55u : sum;
-        for (i = 0, k = 0; i < 16u; i++)
-            if ((uint32_t)(blob[16 + i] ^ blob[15 - i]) < sum)
-                k |= 1u << i;
-        *key = k;
-        return 0;
+        if (ota_memeq(e + 16, (const uint8_t *)name, n))
+            return 0;
+        if (ota_rd16(e + 14))
+            return -3;                                   /* last entry, not found */
     }
     return -3;
+}
+
+/* chip key from the device's flash head: isd_config.ini blob */
+static int ldr_chip_key(uint32_t *key)
+{
+    uint8_t e[32], blob[34];
+    uint32_t i, sum, k;
+    int rc;
+    if ((rc = ldr_head_entry("isd_config.ini", 15, e)) != 0)
+        return rc;
+    if (ldr_fread(ota_rd32(e + 4), blob, 34) || ota_crc16(blob, 32, 0) != ota_rd16(blob + 32))
+        return -4;
+    for (i = 0, sum = 0; i < 16u; i++)
+        sum += blob[i];
+    sum &= 0xFFu;
+    sum = sum >= 0xE0u ? 0xAAu : sum <= 0x10u ? 0x55u : sum;
+    for (i = 0, k = 0; i < 16u; i++)
+        if ((uint32_t)(blob[16 + i] ^ blob[15 - i]) < sum)
+            k |= 1u << i;
+    *key = k;
+    return 0;
 }
 
 /* 2b. flash.bin [0, fl_size) from the host, before any erase: its CRC16 must be the UFW entry's (want); sc gets
@@ -204,7 +214,11 @@ static int ldr_session(void)
     for (i = 0; i < ota_rd16(hdr + 8); i++)
         if (ota_rd16(hdr + 0x40 + i * 0x50u) == 0)
             want = ota_rd16(hdr + 0x40 + i * 0x50u + 4u);   /* flash.bin's data CRC16 */
-    /* 2. the package's app area must decrypt with this chip's key */
+    /* 2. the device's app area is at 0x4000 (refused when its head says otherwise; a
+     *    head without the entry is taken as before), and the package's decrypts with this chip's key */
+    rc = ldr_head_entry("app_dir_head", 13, cur);
+    if (rc == 0 ? ota_rd32(cur + 4) != LDR_APP_LO : rc != -3)
+        return -45;
     if ((rc = ldr_chip_key(&key)) != 0)
         return -40 + rc;
     if (ota_read(fl_off + LDR_APP_LO, sec, 32))
