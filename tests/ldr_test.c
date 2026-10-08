@@ -278,6 +278,37 @@ int main(int argc, char **argv)
         rc = ldr_session();
         bad += check("... the good package then installs", rc == 0 && app_is_new());
     }
+    /* a device whose flash head puts the app area elsewhere is refused before any erase */
+    {
+        uint32_t off;
+        device(old + ofo);
+        for (off = 32; off < 0x400u; off += 32u) {
+            uint8_t e[32];
+            memcpy(e, nor + off, 32);
+            ota_jl_enc(e, 32);
+            if (memcmp(e + 16, "app_dir_head", 13)) continue;
+            ota_wr32(e + 4, 0x5000u);
+            ota_wr16(e, ota_crc16(e + 2, 30, 0));
+            ota_jl_enc(e, 32);
+            memcpy(nor + off, e, 32);
+            break;
+        }
+        rc = ldr_session();
+        bad += check("flash head with another app area offset refused, nothing erased",
+                     off < 0x400u && rc == -45 && erases == 0);
+        {   /* the same entry renamed: a head without app_dir_head installs as before */
+            uint8_t e[32];
+            memcpy(e, nor + off, 32);
+            ota_jl_enc(e, 32);
+            ota_wr32(e + 4, 0x4000u);
+            e[16 + 11] = 'X';
+            ota_wr16(e, ota_crc16(e + 2, 30, 0));
+            ota_jl_enc(e, 32);
+            memcpy(nor + off, e, 32);
+            rc = ldr_session();
+            bad += check("flash head without app_dir_head: installs", rc == 0 && app_is_new());
+        }
+    }
     /* a package for another chip key is refused before any erase */
     {
         uint8_t save = logical[nfo + 0x4000 + 5];
